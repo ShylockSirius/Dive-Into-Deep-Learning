@@ -568,3 +568,67 @@ def train_pytorch_ch7(optimizer_fn, optimizer_hyperparams, features, labels, bat
     plt.xlabel('epoch')
     plt.ylabel('loss')
     plt.show()
+
+# 定义绘图函数，本函数已保存在d2lzh_pytorch包中⽅便以后使⽤
+def show_images(imgs, num_rows, num_cols, scale=2):
+    figsize = (num_cols * scale, num_rows * scale)
+    _, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+    for i in range(num_rows):
+        for j in range(num_cols):
+            axes[i][j].imshow(imgs[i * num_cols + j])
+            axes[i][j].axes.get_xaxis().set_visible(False)
+            axes[i][j].axes.get_yaxis().set_visible(False)
+    return axes
+
+# 训练函数，本函数已保存在d2lzh_pytorch包中⽅便以后使⽤
+def train(train_iter, test_iter, net, loss, optimizer, device, num_epochs):
+    net = net.to(device)
+    print("training on ", device)
+    batch_count = 0
+    for epoch in range(num_epochs):
+        train_l_sum, train_acc_sum, n, start = 0.0, 0.0, 0, time.time()
+        for X, y in train_iter:
+            X = X.to(device)
+            y = y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            optimizer.zero_grad()
+            l.backward()
+            optimizer.step()
+            train_l_sum += l.cpu().item()
+            train_acc_sum += (y_hat.argmax(dim=1) == y).sum().cpu().item()
+            n += y.shape[0]
+            batch_count += 1
+        test_acc = evaluate_accuracy(test_iter, net)
+        print('epoch %d, loss %.4f, train acc %.3f, test acc %.3f, time %.1f sec' % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, test_acc, time.time() - start))
+
+def resnet_block(in_channels, out_channels, num_residuals, first_block=False):
+    if first_block:
+        assert in_channels == out_channels # 第一个模块的通道数同输入通道数一致
+    blk = []
+    for i in range(num_residuals):
+        if i == 0 and not first_block:
+            blk.append(Residual(in_channels, out_channels, use_1x1conv=True, stride=2))
+        else:
+            blk.append(Residual(out_channels, out_channels))
+    return nn.Sequential(*blk)
+
+def resnet18(output=10, in_channels=3):
+    net = nn.Sequential(
+        nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+    net.add_module("resnet_block1", resnet_block(64, 64, 2, first_block=True))
+    net.add_module("resnet_block2", resnet_block(64, 128, 2))
+    net.add_module("resnet_block3", resnet_block(128, 256, 2))
+    net.add_module("resnet_block4", resnet_block(256, 512, 2))
+    net.add_module("global_avg_pool", GlobalAvgPool2d()) # GlobalAvgPool2d的输出: (Batch, 512, 1, 1)
+    net.add_module("fc", nn.Sequential(FlattenLayer(), nn.Linear(512, output)))
+    return net
+
+def bbox_to_rect(bbox, color): # 画出边界框，本函数已保存在d2lzh_pytorch中⽅便以后使⽤
+    # 将边界框(左上x, 左上y, 右下x, 右下y)格式转换成matplotlib格式：
+    # ((左上x, 左上y), 宽, ⾼)
+    return d2l.plt.Rectangle(
+        xy=(bbox[0], bbox[1]), width=bbox[2]-bbox[0], height=bbox[3]-bbox[1], fill=False, edgecolor=color, linewidth=2)
